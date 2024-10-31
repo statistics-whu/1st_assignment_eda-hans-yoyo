@@ -35,6 +35,7 @@ library(jiebaRD)
 library(jiebaR)
 library(wordcloud2)
 library(knitr)
+library(showtext)
 ```
 
 # 你的主要发现
@@ -66,6 +67,9 @@ lj<- read_csv("./data/2023-09-12_cleaned.csv")
 ## 如下语句可以解决画图中的中文显示问题，当然你可以用showtext包来解决
 
 theme_set(theme(text = element_text(family="sans",size = 10))) #这里family设置成你系统中的中文字体名。
+# 添加中文字体
+font_add("PingFang", "/System/Library/Fonts/PingFang.ttc")  # 根据字体路径调整
+showtext_auto()
 
 # 做一些数据预处理，比如把字符型变成factor。
 lj[c("directions1","directions2","decoration","property_height", "property_style", "near_subway", "if_2y", "has_key", "vr")] <- lapply(lj[c("directions1", "directions2","decoration", "property_height", "property_style", "near_subway", "if_2y", "has_key", "vr")], as.factor)
@@ -284,13 +288,13 @@ summary_stats <- lj %>%
 
 ggplot(summary_stats, aes(x = interaction(directions1, directions2), y = Count)) +
   geom_bar(stat = "identity") +
-  labs(title = "不同朝向的平均单价", x = "朝向", y = "数量") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  labs(title = "不同朝向的房屋数量", x = "朝向", y = "房屋数量") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), text = element_text(family = "PingFang"))
 
 ggplot(summary_stats, aes(x = interaction(directions1, directions2), y = Mean_Price)) +
   geom_bar(stat = "identity") +
-  labs(title = "不同朝向的房屋数量", x = "朝向", y = "平均单价") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  labs(title = "不同朝向的平均单价", x = "朝向", y = "平均单价") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  text = element_text(family = "PingFang"))
 ```
 
 发现：
@@ -312,7 +316,7 @@ average_price_per_area <- lj %>%
   ) %>%
   arrange(desc(mean_price))
 
-print(average_price_per_area)
+#print(average_price_per_area)
 
 # 绘制条形图
 average_price_per_area %>% 
@@ -320,7 +324,9 @@ average_price_per_area %>%
   head(10) %>% 
   ggplot(aes(x = property_region, y = mean_price, fill = mean_followers)) +
   geom_bar(stat = "identity") +
-  labs(title = "各片区平均房屋单价", x = "片区", y = "平均单价")
+  labs(title = "各片区平均房屋单价", x = "片区", y = "平均单价") +
+  theme(text = element_text(family = "PingFang"))  # 使用中文字体
+
 ```
 
 发现：
@@ -333,7 +339,8 @@ average_price_per_area %>%
 
 lj %>% 
   ggplot(aes(price_sqm, fill = property_style)) +
-  geom_histogram(position = "fill")
+  geom_histogram(position = "fill") +
+  theme(text = element_text(family = "PingFang"))
 
 lj %>% 
   group_by(property_style) %>% 
@@ -341,7 +348,9 @@ lj %>%
   ggplot(aes(x = count, y = property_style, fill = property_style)) +
   geom_bar(stat = "identity") +
   coord_polar(theta = "y") +
-  labs(title = "不同房产风格的分布")
+  labs(title = "不同房产风格的分布") +
+  theme(text = element_text(family = "PingFang"))
+
 ```
 
 发现：
