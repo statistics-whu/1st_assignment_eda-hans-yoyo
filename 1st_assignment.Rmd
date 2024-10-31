@@ -1,7 +1,7 @@
 ---
-title: "第一次作业你的报告题目"
+title: "2023年链家二手房数据分析报告"
 CJKmainfont: Songti SC
-author: "your name"
+author: "胡浛"
 date: "`r Sys.Date()`"
 output:
   pdf_document:
@@ -16,8 +16,9 @@ output:
     number_sections: yes
     theme: cosmo
     toc: yes
+always_allow_html: true
 ---
-```{r setup, include = FALSE,echo = FALSE}
+```{r setup,include = FALSE}
 knitr::opts_chunk$set(echo = FALSE,error = FALSE, warning = FALSE, message = FALSE,
                       out.width = "100%", split = FALSE, fig.align = "center")
 #load library
@@ -28,16 +29,22 @@ library(scales)
 library(plotly)
 library(patchwork)
 library(ggrepel)
+library(e1071)
+library(pastecs)
+library(jiebaRD)
+library(jiebaR)
+library(wordcloud2)
+library(knitr)
+library(showtext)
 ```
 
 # 你的主要发现
 
-1. 发现1
+1. 价格偏高的二手房所在区域与挂牌数量多的区域没有重合
 
-1. 发现2
+2. 普遍认为的房屋朝向对房屋单价的影响，在样本数据中表现的不明显
   
-1. 发现3
-    
+3. 黄埔永清、CBD西北路、中北路，这三个属于比较热门的片区，单价高而且关注人数不低
 
 # 数据介绍
 
@@ -51,17 +58,23 @@ library(ggrepel)
 
  **说明：**数据仅用于教学；由于不清楚链家数据的展示规则，因此数据可能并不是武汉二手房市场的随机抽样，结论很可能有很大的偏差，甚至可能是错误的。
     
-```{r}
+```{r results='hide'}
 # 载入数据和预处理
 
-lj<- read_csv("/Users/jameschen/Documents/02_Teaching/12_quantitative_thinking_R/data/2023-09-12_cleaned.csv")
+lj<- read_csv("./data/2023-09-12_cleaned.csv")
 # EDA ---------------------------------------------------------------------
 
 ## 如下语句可以解决画图中的中文显示问题，当然你可以用showtext包来解决
 
-theme_set(theme(text = element_text(family="Songti SC",size = 10))) #这里family设置成你系统中的中文字体名。
+theme_set(theme(text = element_text(family="sans",size = 10))) #这里family设置成你系统中的中文字体名。
+# 添加中文字体
+font_add("PingFang", "/System/Library/Fonts/PingFang.ttc")  # 根据字体路径调整
+showtext_auto()
 
 # 做一些数据预处理，比如把字符型变成factor。
+lj[c("directions1","directions2","decoration","property_height", "property_style", "near_subway", "if_2y", "has_key", "vr")] <- lapply(lj[c("directions1", "directions2","decoration", "property_height", "property_style", "near_subway", "if_2y", "has_key", "vr")], as.factor)
+
+# levels(lj$property_style)
 
 ```
 
@@ -72,83 +85,282 @@ theme_set(theme(text = element_text(family="Songti SC",size = 10))) #这里famil
 ```{r}
 lj %>% 
   head(10) %>%
-  kable(caption = "武汉链家二手房") %>% 
-  kable_styling()
+  kable(caption = "武汉链家二手房") 
 ```
 
 各变量的简短信息：
-```{r}
+```{r results='hide'}
 glimpse(lj)
 ```
 
 各变量的简短统计：
-```{r}
+```{r results='hide'}
 summary(lj)
 ```
 
 可以看到：
 
-- 直观结论1
+- 房屋总价跨度从10.6w到1380w, 整体跨度区间极大。第一分位数(95w)和第三分位数(188w)，估计大部分房屋总价集中在100-200w之间, 房屋单价分布在10000-20000居多。
 
-- 直观结论2
+- 从房屋挂牌数上看，市场上比较多的房屋类型是:精装、南北朝向、中楼层、板楼
 
-- ...
+- 从房屋房间数看，大部分是2室或3室
 
 # 探索性分析
 
-## 变量1的数值描述与图形
+## price_ttl 的数值描述与图形
+
+```{r}
+
+# 定义函数
+calc_statistic <- function(data) {
+  # 集中趋势性指标
+  mean_value <- mean(data)
+  median_value <- median(data)
+  mode_value <- as.numeric(names(sort(table(data), decreasing = TRUE)[1])) #众数
+  
+  # 离散趋势指标
+  range_value <- range(data, na.rm = TRUE)
+  iqr_value <- IQR(data, na.rm = TRUE)
+  variance_value <- var(data,na.rm = TRUE)
+  sd_value <- sd(data, na.rm = TRUE)
+  
+  # 分布形状指标
+  skewness_value <- skewness(data, na.rm = TRUE)
+  kurtosis_value <- kurtosis(data, na.rm = TRUE)
+  
+  # 返回结果
+  return(data.frame(
+    Statistic = c("Mean", "Median", "Mode", "Variance", "Standard Deviation", "Range", "IQR", "Skewness", "Kurtosis"),
+    Value = c(mean_value, median_value, mode_value, variance_value, sd_value, paste(range_value, collapse = " to "), iqr_value, skewness_value, kurtosis_value)
+  ))
+}
+
+# todo 设置显示精度
+kable(calc_statistic(lj$price_ttl), 
+      caption = "price_ttl数值分析")
+
+lj %>% 
+  ggplot(aes(price_ttl)) +
+  geom_boxplot() +
+  geom_vline(xintercept = median(lj$price_ttl), color = "red", size = 1) +
+  geom_vline(xintercept = quantile(lj$price_ttl, c(0.25, 0.75)), color = "blue") +
+  geom_vline(xintercept = range(lj$price_ttl), color = "orange") +
+  geom_vline(xintercept = quantile(lj$price_ttl, 0.75) + 1.5*IQR(lj$price_ttl), color = "green")
+
+```
+
+
+```{r}
+
+region_total_top5 <-  lj %>% 
+  group_by(property_region) %>% 
+  summarise(count = n()) %>% 
+  arrange(desc(count)) %>% 
+  head(5)
+
+kable(region_total_top5, caption = "挂牌数前5名的区域")
+
+# 计算 Q1, Q3 和 IQR
+Q3 <- quantile(lj$price_ttl, 0.75)
+IQR_value <- IQR(lj$price_ttl)
+
+upper_bound <- Q3 + 1.5 * IQR_value
+
+lj_high_scattered <- lj[lj$price_ttl > upper_bound, ]
+
+lj_high_scattered_top5 <-  lj_high_scattered %>% 
+  group_by(property_region) %>% 
+  summarise(count = n()) %>% 
+  arrange(desc(count)) %>% 
+  head(5)
+
+kable(lj_high_scattered_top5, caption = "高离散值前5名的区域")
+```
 
 发现：
 
-- 发现1
+- 二手房均价为155.9w, IQR为93w，数据相对还是比较集中，50%的数据在95w-188w之间。
 
-- 发现2
+- 偏度>0, 长尾在右侧，较多总价集中在左侧，这与线框图的图形特征相符。从箱线图看，右须较长，存在较多的离散值
 
-## 变量2的数值描述与图形
+- 挂牌数量前5位的区域是白沙洲、盘龙城、四新、光谷东、金银湖; 而价格偏高的房屋所在区域, 排在前五的是: 积玉桥、中北路、CBD西北湖、中南丁字桥、黄埔永清。价格高的房屋都不在挂牌数量多的区域。
 
-发现：
 
-- 发现1
+## property_name 的数值描述与图形
 
-- 发现2
 
-## 变量...的数值描述与图形
+```{r echo=FALSE}
 
-发现：
+library(wordcloud2)
+word_freq <- freq(segment(lj$property_name, worker()))
 
-- 发现1
+wordcloud2(word_freq, color = "random-light", shape = "cloud") 
 
-- 发现2
+# 小区挂牌数top10
+lj %>% 
+  group_by(property_name) %>% 
+  summarise(count = n()) %>% 
+  arrange(desc(count)) %>% 
+  head(10) %>% 
+  kable(caption = "小区挂牌数top10") 
 
-## 探索问题1
+# 小区关注度top10
+lj %>% 
+  group_by(property_name) %>% 
+  summarise(count = sum(followers, na.rm = TRUE)) %>% 
+  arrange(desc(count)) %>% 
+  head(10) %>% 
+  kable(caption = "小区关注度top10") 
+```
 
-发现：
-
-- 发现1
-
-- 发现2
-
-## 探索问题2
-
-发现：
-
-- 发现1
-
-- 发现2
-
-## 探索问题3
 
 发现：
 
-- 发现1
+- 挂牌小区词条出现最多的是"国际"
 
-- 发现2
+- 小区挂牌数前3位是:东立国际、保利中央公馆、朗诗里程
+
+- 小区关注度最高的前3位是: 中环星干线、万达公馆、十里河府
+
+
+## 变量 followers 的数值描述与图形
+
+```{r echo=FALSE}
+
+kable(calc_statistic(lj$followers), 
+      caption = "followers数值分析")
+
+lj %>% 
+  ggplot(aes(as.factor(followers))) +
+  geom_bar()
+  scale_x_discrete(limits=as.character(1:1000)) 
+
+lj %>% 
+  ggplot(aes(followers)) +
+  geom_boxplot() +
+  geom_vline(xintercept = median(lj$followers), color = "red", size = 1) +
+  geom_vline(xintercept = quantile(lj$followers, c(0.25, 0.75)), color = "blue") +
+  geom_vline(xintercept = range(lj$followers), color = "orange") +
+  geom_vline(xintercept = quantile(lj$followers, 0.75) + 1.5*IQR(lj$followers), color = "green")
+
+# 计算 Q1, Q3 和 IQR
+Q1 <- quantile(lj$followers, 0.25, na.rm = TRUE)
+Q3 <- quantile(lj$followers, 0.75, na.rm = TRUE)
+IQR_value <- IQR(lj$followers, na.rm = TRUE)
+
+# 确定异常值的上下限
+lower_bound <- Q1 - 1.5 * IQR_value
+upper_bound <- Q3 + 1.5 * IQR_value
+
+# 筛选掉离散点
+filtered_lj <- lj %>%
+  filter(followers >= lower_bound & followers <= upper_bound & followers > 0)
+
+# 计算平均值
+mean_followers <- mean(filtered_lj$followers, na.rm = TRUE)
+
+# 输出结果
+print(mean_followers)
+```
+
+
+发现：
+
+- 房屋关注人数范围从0-262,差别极大
+
+- 偏度>0, 长尾在右侧，较多总价集中在左侧，这与线框图的图形特征相符。从箱线图看，右须较长，存在较多的离散值
+
+- 整体的关注人数平均值为6.6，除去离散点后的平均值为4，两者相差较大，说明在数据分析过程中不仅要看整体，也需要分析是否存在个别离散数据对整体造成较大影响
+
+## 探索问题1: 房屋朝向对单价是否存在影响
+
+```{r}
+
+summary_stats <- lj %>%
+  filter(!is.na(directions1) & !is.na(directions2)) %>% 
+  group_by(directions1, directions2) %>%
+  summarise(
+    Mean_Price = mean(price_sqm, na.rm = TRUE),
+    Median_Price = median(price_sqm, na.rm = TRUE),
+    Count = n()
+  ) %>% arrange(desc(Count))
+
+ggplot(summary_stats, aes(x = interaction(directions1, directions2), y = Count)) +
+  geom_bar(stat = "identity") +
+  labs(title = "不同朝向的房屋数量", x = "朝向", y = "房屋数量") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), text = element_text(family = "PingFang"))
+
+ggplot(summary_stats, aes(x = interaction(directions1, directions2), y = Mean_Price)) +
+  geom_bar(stat = "identity") +
+  labs(title = "不同朝向的平均单价", x = "朝向", y = "平均单价") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  text = element_text(family = "PingFang"))
+```
+
+发现：
+
+- 南北朝向的二手房挂牌数最多
+
+- 朝向对房屋的单价影响不大
+
+## 探索问题2: 单价高和关注高的主要在哪些片区
+
+```{r}
+# 计算每个片区的平均单价
+average_price_per_area <- lj %>%
+  group_by(property_region) %>%
+  summarise(
+    mean_price = mean(price_sqm, na.rm = TRUE),
+    mean_followers = mean(followers, na.rm = TRUE),
+    count = n()
+  ) %>%
+  arrange(desc(mean_price))
+
+#print(average_price_per_area)
+
+# 绘制条形图
+average_price_per_area %>% 
+  arrange(desc(mean_price)) %>% 
+  head(10) %>% 
+  ggplot(aes(x = property_region, y = mean_price, fill = mean_followers)) +
+  geom_bar(stat = "identity") +
+  labs(title = "各片区平均房屋单价", x = "片区", y = "平均单价") +
+  theme(text = element_text(family = "PingFang"))  # 使用中文字体
+
+```
+
+发现：
+
+- 单价高而且关注高的片区是: 黄埔永清、CBD西北路、VR看装修(可能是脏数据)、中北路
+
+## 探索问题3: 建筑类型对房价的影响
+
+```{r}
+
+lj %>% 
+  ggplot(aes(price_sqm, fill = property_style)) +
+  geom_histogram(position = "fill") +
+  theme(text = element_text(family = "PingFang"))
+
+lj %>% 
+  group_by(property_style) %>% 
+  summarise(count = n()) %>%  
+  ggplot(aes(x = count, y = property_style, fill = property_style)) +
+  geom_bar(stat = "identity") +
+  coord_polar(theta = "y") +
+  labs(title = "不同房产风格的分布") +
+  theme(text = element_text(family = "PingFang"))
+
+```
+
+发现：
+
+- 建筑形式最多的是板楼，其次是板塔结合，再次是塔楼。
+
+- 房屋单价上看不出与建筑类型有比较强的关联关系
 
 ---
 
 # 发现总结
 
-用1-3段话总结你的发现。
-
-
-
+从上面的数据分析中，数据分析是一个比较抽象的过程，特别是在探索性发现的过程中，你常识中预测的时间结果可能与最终分析的结果不一致。
